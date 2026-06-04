@@ -1,0 +1,21 @@
+[project]
+name = "stock-chatter-monitor"
+version = "0.1.0"
+description = "Daily US stock chatter memo and rolling X account trust score tooling."
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+market = ["yfinance>=0.2.40", "pandas>=2.0"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+stock-chatter = "stock_chatter.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
