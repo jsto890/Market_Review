@@ -137,3 +137,7 @@ Run tests:
 ```zsh
 PYTHONPATH=src pytest
 ```
+
+## Note on git history
+
+This repository was developed privately and published as a clean snapshot. The single initial commit reflects a curated public release rather than the full development timeline.
