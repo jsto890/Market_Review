@@ -11,7 +11,20 @@ class Account:
     score_weight: float
 
 
-ACCOUNTS: tuple[Account, ...] = (
+try:
+    # accounts_local.py is gitignored — holds real handles locally.
+    # Define ACCOUNTS, and optionally CLUSTER_CORE / CLUSTER_CONFIRM, to override public stubs.
+    from stock_chatter.accounts_local import ACCOUNTS as _local_accounts
+    ACCOUNTS = _local_accounts
+    try:
+        from stock_chatter.accounts_local import CLUSTER_CORE as _local_cluster_core
+        from stock_chatter.accounts_local import CLUSTER_CONFIRM as _local_cluster_confirm
+        _LOCAL_CLUSTERS = (_local_cluster_core, _local_cluster_confirm)
+    except ImportError:
+        _LOCAL_CLUSTERS = None
+except ImportError:
+    _LOCAL_CLUSTERS = None
+    ACCOUNTS: tuple[Account, ...] = (
     Account("@core_alpha_01", "core_alpha", "Small cap, sector rotation, short term and swing ideas", 1.0),
     Account("@core_alpha_02", "core_alpha", "Long-term thematic small/mid-cap research", 1.0),
     Account("@core_alpha_03", "core_alpha", "AI infrastructure, memory, data center, Asian tech", 1.0),
@@ -46,18 +59,20 @@ ACCOUNTS: tuple[Account, ...] = (
 
 # Accounts whose overlap on a ticker produces a cluster bonus in quality scoring.
 # Core trio: highest hit-rate accounts by backtest. Confirm: strong corroborators.
-CLUSTER_CORE: frozenset[str] = frozenset({
-    "@core_alpha_01",
-    "@swing_03",
-    "@core_alpha_02",
-})
-
-CLUSTER_CONFIRM: frozenset[str] = frozenset({
-    "@swing_02",
-    "@core_alpha_05",
-    "@swing_05",
-    "@swing_08",
-})
+if _LOCAL_CLUSTERS is not None:
+    CLUSTER_CORE, CLUSTER_CONFIRM = _LOCAL_CLUSTERS
+else:
+    CLUSTER_CORE: frozenset[str] = frozenset({
+        "@core_alpha_01",
+        "@swing_03",
+        "@core_alpha_02",
+    })
+    CLUSTER_CONFIRM: frozenset[str] = frozenset({
+        "@swing_02",
+        "@core_alpha_05",
+        "@swing_05",
+        "@swing_08",
+    })
 
 
 ACCOUNT_BY_HANDLE = {account.handle.lower(): account for account in ACCOUNTS}

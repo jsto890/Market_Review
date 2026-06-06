@@ -9,3 +9,4 @@ logs/
 .DS_Store
 .claude/
 GITHUB_READINESS.md
+src/stock_chatter/accounts_local.py

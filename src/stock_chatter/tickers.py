@@ -1,6 +1,17 @@
 from __future__ import annotations
 
-CRYPTO_TICKERS = {"BTC", "ETH", "DOGE", "SOL", "XRP"}
+CRYPTO_TICKERS = {
+    "BTC", "ETH", "DOGE", "SOL", "XRP", "ADA", "AVAX", "MATIC", "DOT", "LINK",
+    "LTC", "BCH", "ATOM", "NEAR", "APT", "ARB", "OP", "ZEC", "CRO", "TON",
+    "TRUMP", "PEPE", "SHIB", "FLOKI", "WIF", "BONK", "MEME", "POPCAT",
+    "TRX", "ETC", "HBAR", "VET", "FIL", "ICP", "ALGO", "XLM", "SAND",
+    "MANA", "AXS", "ENJ", "THETA", "FTM", "ONE", "EGLD", "KAVA", "ZIL",
+    "CELO", "RVN", "DASH", "XMR", "EOS", "NEO", "WAVES", "QTUM", "ONT",
+    "ICX", "ZRX", "BAT", "GRT", "SNX", "UNI", "AAVE", "COMP", "MKR",
+    "CRV", "SUSHI", "YFI", "1INCH", "LDO", "RPL", "STX", "CFX", "SUI",
+    "SEI", "TIA", "PYTH", "JTO", "ONDO", "WLD", "STRK", "MANTA", "ALT",
+    "PIXEL", "PORTAL", "DYM", "AIT", "ZETA", "SAGA", "REZ", "BB",
+}
 INDEX_TICKERS = {"SPX", "VIX", "DJI", "NDX"}
 COMMODITY_TICKERS = {"SILVER", "GOLD", "OIL"}
 ETF_TICKERS = {

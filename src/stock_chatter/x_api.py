@@ -145,6 +145,73 @@ def fetch_recent_cashtag_posts(
     return rows
 
 
+def fetch_trending_cashtag_posts(
+    *,
+    start_time: datetime,
+    end_time: datetime,
+    max_pages: int = 3,
+    bearer_token: str | None = None,
+    approve_cost: bool = False,
+) -> list[dict]:
+    """
+    Broad cashtag search with no account filter — discovers tickers by raw mention frequency.
+    Returns up to max_pages * 100 tweets. Use rank_tickers_by_mention() on the result.
+    """
+    query = "(stock OR shares OR NYSE OR NASDAQ OR earnings OR equity OR sector OR buyout OR IPO OR \"small cap\" OR \"mid cap\" OR \"large cap\" OR smallcap OR midcap OR largecap OR \"small-cap\" OR \"mid-cap\" OR \"large-cap\" OR buy OR sell OR long OR short OR watch OR bullish OR bearish OR breakout OR setup OR trade) has:cashtags -is:retweet lang:en -bitcoin -ethereum -crypto -altcoin -defi -nft -memecoin -blockchain -web3 -solana -forex -currency"
+    if not approve_cost:
+        raise XCostApprovalRequired(
+            f"X API estimate: endpoint={RECENT_SEARCH_URL}, query_count=1, "
+            f"max_requests={max_pages}. Broad cashtag scan — up to {max_pages * 100} tweets. "
+            "X describes read endpoints as pay-per-use. Review current X pricing before approving."
+        )
+
+    token = bearer_token or os.environ.get("X_BEARER_TOKEN")
+    if not token:
+        raise RuntimeError("X_BEARER_TOKEN is missing")
+
+    rows: list[dict] = []
+    next_token: str | None = None
+    for page in range(max_pages):
+        params: dict[str, str] = {
+            "query": query,
+            "start_time": iso_utc(start_time),
+            "end_time": iso_utc(end_time),
+            "max_results": "100",
+            "tweet.fields": "author_id,conversation_id,created_at,entities,public_metrics,referenced_tweets",
+            "expansions": "author_id",
+            "user.fields": "username",
+        }
+        if next_token:
+            params["next_token"] = next_token
+
+        payload = _get_json(RECENT_SEARCH_URL, params, token)
+        users = {
+            user.get("id"): user.get("username")
+            for user in payload.get("includes", {}).get("users", [])
+        }
+        meta_next_token = payload.get("meta", {}).get("next_token")
+        for tweet in payload.get("data", []):
+            username = users.get(tweet.get("author_id"), "")
+            tweet_id = tweet["id"]
+            rows.append({
+                "id": tweet_id,
+                "account": f"@{username}" if username else "",
+                "created_at": tweet.get("created_at", ""),
+                "text": tweet.get("text", ""),
+                "entities": tweet.get("entities", {}),
+                "url": f"https://x.com/{username}/status/{tweet_id}" if username else "",
+                "public_metrics": tweet.get("public_metrics", {}),
+                "referenced_tweets": tweet.get("referenced_tweets", []),
+                "query": query,
+                "query_page": page + 1,
+                "page_has_next_token": bool(meta_next_token),
+            })
+        next_token = meta_next_token
+        if not next_token:
+            break
+    return rows
+
+
 def _get_json(url: str, params: dict[str, str], bearer_token: str) -> dict:
     request = Request(
         f"{url}?{urlencode(params)}",

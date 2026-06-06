@@ -47,7 +47,9 @@ def render_memo(
         _render_setup_sections(lines, setups)
         _render_leaderboard(lines, leaderboard or [])
         _render_backtest(lines, backtest or [])
-        _render_theme_map(lines, setups)
+        _render_trusted_picks(lines, backtest or [], setups)
+        _render_rising_mentions(lines, watchlist or [], setups)
+        _render_sector_rotation(lines, setups)
         lines.extend(["", "## X Coverage"])
         if x_skipped:
             lines.append("- X API coverage skipped for this run because per-run paid API approval was not supplied.")
@@ -223,6 +225,155 @@ def _render_theme_map(lines: list[str], setups: list[dict]) -> None:
         lines.append(f"- {catalyst.replace('_', ' ').title()}: {count} ticker(s).")
     if news_counts:
         lines.append(f"- Catalyst type mix: {_counter_summary(news_counts)}.")
+
+
+def _render_trusted_picks(lines: list[str], backtest: list[dict], setups: list[dict]) -> None:
+    """What are the highest-accuracy accounts currently excited about?"""
+    MIN_EVENTS = 5
+    MIN_HIT_RATE = 0.65
+
+    trusted = [
+        row for row in backtest
+        if int(row.get("complete_1d_count") or 0) >= MIN_EVENTS
+        and _float(row.get("hit_rate_1d")) >= MIN_HIT_RATE
+    ]
+    if not trusted:
+        return
+
+    trusted_handles = {row["account"] for row in trusted}
+    setup_by_ticker = {row["ticker"]: row for row in setups}
+    active_labels = {"fresh_watch", "building", "momentum_confirmed"}
+
+    ticker_trust: dict[str, list[str]] = defaultdict(list)
+    for setup in setups:
+        if setup.get("setup_label") not in active_labels:
+            continue
+        for handle in (setup.get("top_accounts") or "").split(";"):
+            handle = handle.strip()
+            if handle in trusted_handles:
+                ticker_trust[setup["ticker"]].append(handle)
+
+    scored = [
+        (ticker, handles)
+        for ticker, handles in ticker_trust.items()
+        if len(handles) >= 2 or any(
+            _float(next((r["hit_rate_1d"] for r in trusted if r["account"] == h), None)) >= 0.80
+            for h in handles
+        )
+    ]
+    scored.sort(key=lambda x: -len(x[1]))
+
+    lines.extend(["", "## Trusted Account Picks"])
+    if not scored:
+        lines.append("- No active setups have 2+ high-accuracy accounts aligned.")
+        return
+    lines.append(
+        f"- Showing tickers where ≥2 accounts with >{int(MIN_HIT_RATE*100)}% 1D hit rate (≥{MIN_EVENTS} events) are currently bullish."
+    )
+    for ticker, handles in scored[:8]:
+        setup = setup_by_ticker.get(ticker, {})
+        qs = _float(setup.get("quality_score"))
+        label = setup.get("setup_label", "")
+        hit_info = "; ".join(
+            f"{h} {int(_float(next((r['hit_rate_1d'] for r in trusted if r['account'] == h), '0'))*100)}%"
+            for h in handles[:4]
+        )
+        lines.append(f"- ${ticker}: {label} | quality {qs:.1f} | trusted callers: {hit_info}")
+
+
+def _render_rising_mentions(lines: list[str], watchlist: list[dict], setups: list[dict]) -> None:
+    """Tickers building multi-day mention momentum — not yet in the Action Queue."""
+    active_labels = {"fresh_watch", "building", "momentum_confirmed"}
+    action_queue_labels = {"fresh_watch", "building", "momentum_confirmed"}
+
+    action_tickers = {
+        row["ticker"]
+        for row in setups
+        if row.get("setup_label") in action_queue_labels
+        and row.get("price_data_available") == "true"
+        and "chase_risk" not in (row.get("warnings") or "")
+        and _float(row.get("quality_score")) >= 8.0
+    }
+
+    candidates = [
+        row for row in watchlist
+        if row.get("still_fresh") == "True"
+        and int(row.get("age_days") or 0) >= 3
+        and row.get("latest_setup_label") in active_labels
+        and row.get("ticker") not in action_tickers
+    ]
+    candidates.sort(key=lambda r: -int(r.get("mention_count") or 0))
+
+    lines.extend(["", "## Rising Mentions"])
+    if not candidates:
+        lines.append("- No tickers with 3+ day mention persistence outside the main action queue.")
+        return
+    lines.append("- Tickers building sustained mention momentum (3+ days active, not yet top-ranked).")
+    for row in candidates[:10]:
+        age = row.get("age_days", "?")
+        first = (row.get("first_seen_at") or "")[:10]
+        prev = row.get("previous_setup_label") or row.get("first_setup_label") or "?"
+        curr = row.get("latest_setup_label") or "?"
+        trajectory = f"{prev} → {curr}" if prev != curr else curr
+        mentions = row.get("mention_count", "?")
+        cats = row.get("catalysts") or "social_only"
+        lines.append(
+            f"- ${row['ticker']}: {trajectory} | {age}d active since {first} | "
+            f"{mentions} mentions | {cats[:50]}"
+        )
+
+
+def _render_sector_rotation(lines: list[str], setups: list[dict]) -> None:
+    """Sector/theme breakdown showing where conviction is building vs cooling."""
+    active_labels = {"fresh_watch", "building", "momentum_confirmed"}
+    caution_labels = {"avoid_wait"}
+    chase_labels = {"extended", "late_chase"}
+
+    theme_active: dict[str, list[str]] = defaultdict(list)
+    theme_caution: dict[str, list[str]] = defaultdict(list)
+    theme_chase: dict[str, list[str]] = defaultdict(list)
+
+    for row in setups:
+        ticker = row.get("ticker", "")
+        label = row.get("setup_label", "")
+        for cat in (row.get("catalysts") or "").split(";"):
+            if not cat:
+                continue
+            if label in active_labels:
+                theme_active[cat].append(ticker)
+            elif label in caution_labels:
+                theme_caution[cat].append(ticker)
+            elif label in chase_labels:
+                theme_chase[cat].append(ticker)
+
+    all_themes = set(theme_active) | set(theme_caution) | set(theme_chase)
+    if not all_themes:
+        lines.extend(["", "## Sector Rotation", "- No theme data available."])
+        return
+
+    scored_themes = sorted(
+        all_themes,
+        key=lambda t: -(len(theme_active.get(t, [])) * 2 + len(theme_chase.get(t, []))),
+    )
+
+    lines.extend(["", "## Sector Rotation"])
+    lines.append("- `↑ building` = active fresh/building setups. `→ running` = extended/late-chase. `↓ cooling` = avoid/wait.")
+    for theme in scored_themes:
+        active = theme_active.get(theme, [])
+        chase = theme_chase.get(theme, [])
+        caution = theme_caution.get(theme, [])
+        if not active and not chase:
+            continue
+        signal = "↑ building" if len(active) >= len(chase) else "→ running"
+        if caution and len(caution) >= len(active):
+            signal = "↓ cooling"
+        top_active = ";".join(active[:5])
+        top_chase = f" | chasing: {';'.join(chase[:3])}" if chase else ""
+        label_str = theme.replace("_", " ").title()
+        lines.append(
+            f"- {label_str}: {signal} | {len(active)} active, {len(chase)} running, {len(caution)} avoid"
+            f" | leaders: {top_active}{top_chase}"
+        )
 
 
 def _setup_line(row: dict) -> str:

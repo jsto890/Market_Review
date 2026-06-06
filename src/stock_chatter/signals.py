@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Iterable
 
 from .accounts import account_for_handle
+from .tickers import asset_type, normalize_ticker
 
 TICKER_RE = re.compile(r"(?<![A-Za-z0-9_])\$([A-Za-z][A-Za-z0-9.]{0,9})\b")
 
@@ -203,6 +205,43 @@ def extract_signals(posts: Iterable[dict]) -> list[dict]:
                 }
             )
     return signals
+
+
+def rank_tickers_by_mention(
+    posts: list[dict],
+    min_mentions: int = 3,
+    min_unique_accounts: int = 8,
+    exclude_asset_types: frozenset[str] = frozenset({"crypto", "index", "commodity", "ambiguous", "class_or_foreign", "etf"}),
+) -> list[dict]:
+    """
+    Count cashtag mentions across posts and return tickers ranked by frequency.
+    Requires both min_mentions and min_unique_accounts to filter coordinated pumps.
+    Designed for use with fetch_trending_cashtag_posts() to discover mid/small-cap names.
+    """
+    counts: Counter[str] = Counter()
+    unique_accounts: dict[str, set[str]] = {}
+
+    for post in posts:
+        tickers = extract_tickers_from_post(post)
+        account = post.get("account", "")
+        for ticker in tickers:
+            normalized = normalize_ticker(ticker)
+            if not normalized:
+                continue
+            if asset_type(normalized) in exclude_asset_types:
+                continue
+            counts[normalized] += 1
+            unique_accounts.setdefault(normalized, set()).add(account)
+
+    return [
+        {
+            "ticker": ticker,
+            "mention_count": count,
+            "unique_accounts": len(unique_accounts.get(ticker, set())),
+        }
+        for ticker, count in counts.most_common()
+        if count >= min_mentions and len(unique_accounts.get(ticker, set())) >= min_unique_accounts
+    ]
 
 
 def _matches(text: str, patterns: tuple[str, ...]) -> bool:
