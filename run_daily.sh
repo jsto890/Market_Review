@@ -48,7 +48,7 @@ def is_us_equity(ticker):
 
 end = datetime.now(timezone.utc) - timedelta(seconds=15)
 start = end - timedelta(hours=10)
-posts = fetch_trending_cashtag_posts(start_time=start, end_time=end, max_pages=10, approve_cost=True)
+posts = fetch_trending_cashtag_posts(start_time=start, end_time=end, max_pages=3, approve_cost=True)
 n = len(posts)
 dyn_threshold = 4 if n < 300 else (6 if n < 600 else 8)
 ranked = rank_tickers_by_mention(posts, min_mentions=5, min_unique_accounts=dyn_threshold)
