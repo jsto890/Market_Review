@@ -30,30 +30,16 @@ PYTHONPATH=src "$PYTHON" -m stock_chatter.cli memo --since-last
 echo "----- Broad cashtag discovery -----"
 cd "$MARKET_REVIEW"
 DISCOVERED=$(PYTHONPATH=src "$PYTHON" -c "
-import sys
-sys.path.insert(0, '$MARKET_ANALYSE/argus')
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from stock_chatter.x_api import fetch_trending_cashtag_posts
-from stock_chatter.signals import rank_tickers_by_mention
-import yfinance as yf
-
-def is_us_equity(ticker):
-    try:
-        info = yf.Ticker(ticker).info
-        return info.get('quoteType') == 'EQUITY' and info.get('exchange', '') in {
-            'NYQ', 'NMS', 'NGM', 'NCM', 'ASE', 'PCX', 'BATS', 'NYSE', 'NASDAQ'
-        }
-    except Exception:
-        return False
+from stock_chatter.discovery import select_candidates
 
 end = datetime.now(timezone.utc) - timedelta(seconds=15)
 start = end - timedelta(hours=10)
 posts = fetch_trending_cashtag_posts(start_time=start, end_time=end, max_pages=3, approve_cost=True)
-n = len(posts)
-dyn_threshold = 4 if n < 300 else (6 if n < 600 else 8)
-ranked = rank_tickers_by_mention(posts, min_mentions=5, min_unique_accounts=dyn_threshold)
-equities = [r['ticker'] for r in ranked[:20] if is_us_equity(r['ticker'])]
-print(','.join(equities))
+tickers = select_candidates(posts, memory_path=Path('reports/watchlist_memory.csv'))
+print(','.join(tickers))
 " 2>/dev/null || echo "")
 echo "Discovered: ${DISCOVERED:-none}"
 
