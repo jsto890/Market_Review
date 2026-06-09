@@ -61,6 +61,7 @@ echo "----- Sentiment × Technical bridge -----"
 cd "$MARKET_ANALYSE/argus"
 FIXED_TICKERS="SMR,CCJ,UEC,LEU,OKLO,UUUU,DNN,NNE,IONQ,RGTI,QBTS,QUBT,RKLB,ASTS,LUNR,RDW,BKSY"
 EXTRA="${FIXED_TICKERS}${DISCOVERED:+,$DISCOVERED}"
+MARKET_REVIEW_REPORT="$MARKET_REVIEW/reports/ticker_setups.csv" \
 "$ARGUS_PYTHON" ../sentiment_bridge.py \
     --min-quality 5 \
     --include-late-chase \

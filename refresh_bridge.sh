@@ -27,6 +27,7 @@ PYTHONPATH=src "$PYTHON" -m stock_chatter.cli memo --since-last
 
 echo "----- Sentiment × Technical bridge -----"
 cd "$MARKET_ANALYSE/argus"
+MARKET_REVIEW_REPORT="$MARKET_REVIEW/reports/ticker_setups.csv" \
 "$ARGUS_PYTHON" ../sentiment_bridge.py \
     --min-quality 5 \
     --include-late-chase \
