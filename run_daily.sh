@@ -50,13 +50,22 @@ EXTRA="${FIXED_TICKERS}${DISCOVERED:+,$DISCOVERED}"
 MARKET_REVIEW_REPORT="$MARKET_REVIEW/reports/ticker_setups.csv" \
 "$ARGUS_PYTHON" ../sentiment_bridge.py \
     --min-quality 5 \
-    --include-late-chase \
     --extra-tickers "$EXTRA" \
     --out ../reports/
+# NB: extended/late_chase are now auto-gated by market regime inside the bridge
+# (--no-chase forces off, --force-chase forces on).
 
 echo "----- Copying reports to Obsidian -----"
 OBSIDIAN_DIR="/Users/josephstorey/Documents/Obsidian Vault/Finance/Market Reports"
 DATE_TAG="$(date +%Y-%m-%d)"
 cp "$MARKET_ANALYSE/reports/bridge_latest.md"    "$OBSIDIAN_DIR/$DATE_TAG Daily Report.md"
+
+# Monthly label-efficacy backtest (1st of the month) — re-tunes the label thresholds
+# as more labelled history and market regimes accumulate.
+if [ "$(date +%d)" = "01" ]; then
+  echo "----- Monthly label-efficacy backtest -----"
+  cd "$MARKET_ANALYSE"
+  "$ARGUS_PYTHON" tools/label_efficacy.py || echo "label_efficacy failed (non-fatal)"
+fi
 
 echo "===== Done — $(date) ====="
