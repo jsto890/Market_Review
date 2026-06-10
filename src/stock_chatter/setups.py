@@ -11,6 +11,7 @@ SETUP_FIELDS = [
     "ticker",
     "asset_type",
     "setup_label",
+    "conviction",
     "actionability",
     "actionability_rank",
     "confidence_label",
@@ -55,6 +56,9 @@ WATCHLIST_FIELDS = [
     "previous_setup_label",
     "latest_setup_label",
     "label_changed",
+    "conviction",
+    "entry_signal",
+    "entry_type",
     "latest_quality_score",
     "catalysts",
     "status",
@@ -93,6 +97,26 @@ FRESH_LABELS = {"fresh_watch", "building"}
 ACTIVE_LABELS = {"fresh_watch", "building", "momentum_confirmed"}
 CHASE_LABELS = {"extended", "late_chase"}
 
+# Lifecycle zones for the entry-on-transition signal.
+WATCH_LABELS = {"fresh_watch", "building"}                       # staking it out, no entry yet
+BREAKOUT_LABELS = {"momentum_confirmed", "extended", "late_chase"}  # price has confirmed → entry zone
+
+
+def _conviction(summary: dict) -> str:
+    """Signal-only conviction tier (high/med/low) — independent of price stage.
+
+    Lets price-stage labels (extended/late_chase) stay aware of how good the
+    underlying idea is, instead of being conviction-blind."""
+    source_score = summary["source_score"]
+    accounts = summary["distinct_account_count"]
+    has_catalyst = bool(summary["catalysts"])
+    cluster = summary["cluster_confirmed"]
+    if source_score >= 1.25 and has_catalyst and (accounts >= 2 or cluster):
+        return "high"
+    if (source_score >= 1.0 and has_catalyst) or accounts >= 2:
+        return "med"
+    return "low"
+
 
 def classify_ticker_setups(signals: list[dict], prices: list[dict]) -> list[dict]:
     price_by_ticker = _prices_by_ticker(prices)
@@ -114,6 +138,7 @@ def classify_ticker_setups(signals: list[dict], prices: list[dict]) -> list[dict
                 "ticker": ticker,
                 "asset_type": asset_type(ticker),
                 "setup_label": label,
+                "conviction": _conviction(summary),
                 "actionability": _actionability(label),
                 "actionability_rank": str(_actionability_rank(label, price_context, warnings)),
                 "confidence_label": _confidence_label(summary, price_context, warnings),
@@ -165,7 +190,18 @@ def update_watchlist_memory(existing_rows: list[dict], setup_rows: list[dict]) -
         catalysts = _merge_tokens(prior.get("catalysts", ""), setup.get("catalysts", ""))
         latest_label = setup.get("setup_label", "")
         previous_label = prior.get("latest_setup_label", "")
+        conviction = setup.get("conviction", "low")
         latest_seen = _max_iso(prior.get("latest_seen_at", ""), setup.get("latest_mention_at") or setup_first)
+        # Entry signal = the watch→breakout transition with a real idea behind it.
+        # This is the one-shot buy trigger, not a daily state.
+        entry_fired = (
+            previous_label in WATCH_LABELS
+            and latest_label in BREAKOUT_LABELS
+            and conviction in {"med", "high"}
+        )
+        entry_type = ""
+        if entry_fired:
+            entry_type = "primary" if latest_label == "momentum_confirmed" else "chase"
         memory[ticker] = {
             "ticker": ticker,
             "first_seen_at": first_seen,
@@ -175,6 +211,9 @@ def update_watchlist_memory(existing_rows: list[dict], setup_rows: list[dict]) -
             "previous_setup_label": previous_label,
             "latest_setup_label": latest_label,
             "label_changed": "true" if previous_label and previous_label != latest_label else "false",
+            "conviction": conviction,
+            "entry_signal": "true" if entry_fired else "false",
+            "entry_type": entry_type,
             "latest_quality_score": setup.get("quality_score", ""),
             "catalysts": catalysts,
             "status": _watchlist_status(latest_label),

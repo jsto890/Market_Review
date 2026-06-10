@@ -31,6 +31,7 @@ SCORED_SIGNALS_PATH = Path("data/interim/scored_signals.csv")
 SCORES_PATH = Path("reports/account_scores.csv")
 SETUPS_PATH = Path("reports/ticker_setups.csv")
 WATCHLIST_PATH = Path("reports/watchlist_memory.csv")
+ENTRY_LOG_PATH = Path("reports/entry_signals.jsonl")
 LEADERBOARD_PATH = Path("reports/account_leaderboard.csv")
 BACKTEST_PATH = Path("reports/account_backtest.csv")
 UNSUPPORTED_TICKERS_PATH = Path("reports/unsupported_tickers.csv")
@@ -288,6 +289,23 @@ def main(argv: list[str] | None = None) -> int:
         memory_rows = update_watchlist_memory(read_csv_dicts(args.memory), read_csv_dicts(args.setups))
         count = write_csv_dicts(args.out, memory_rows, WATCHLIST_FIELDS)
         print(f"Wrote {count} watchlist memory row(s) to {args.out}.")
+        # Append-only dated log of fired entry signals (watch→breakout transitions),
+        # one per ticker per day, so entry-on-transition can be backtested over time.
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        fired = [
+            {
+                "id": f"{today}:{row['ticker']}", "date": today, "ticker": row["ticker"],
+                "from_label": row.get("previous_setup_label", ""),
+                "to_label": row.get("latest_setup_label", ""),
+                "conviction": row.get("conviction", ""),
+                "entry_type": row.get("entry_type", ""),
+                "quality_score": row.get("latest_quality_score", ""),
+            }
+            for row in memory_rows if row.get("entry_signal") == "true"
+        ]
+        if fired:
+            logged = append_new_jsonl(ENTRY_LOG_PATH, fired, id_key="id")
+            print(f"Logged {logged} new entry signal(s) to {ENTRY_LOG_PATH}.")
         return 0
 
     if args.command == "leaderboard":
