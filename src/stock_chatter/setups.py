@@ -326,6 +326,10 @@ def _summarize_signals(signals: list[dict]) -> dict:
 
 def _price_context(rows: list[dict]) -> dict:
     rows = sorted(rows, key=lambda row: row.get("date", ""))
+    # Drop bars with a missing/NaN close. yfinance intermittently returns a
+    # trailing bar with volume but NaN OHLC; reading it as the latest price wipes
+    # out the whole price context and mislabels the ticker as noise/avoid_wait.
+    rows = [r for r in rows if (lambda c: c is not None and c == c)(_to_float(r.get("close")))]
     if not rows:
         return _blank_price_context()
     latest = rows[-1]
