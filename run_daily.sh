@@ -57,7 +57,6 @@ MARKET_REVIEW_REPORT="$MARKET_REVIEW/reports/ticker_setups.csv" \
 echo "----- Copying reports to Obsidian -----"
 OBSIDIAN_DIR="/Users/josephstorey/Documents/Obsidian Vault/Finance/Market Reports"
 DATE_TAG="$(date +%Y-%m-%d)"
-cp "$MARKET_REVIEW/reports/latest_memo.md"       "$OBSIDIAN_DIR/$DATE_TAG Twitter Memo.md"
-cp "$MARKET_ANALYSE/reports/bridge_latest.md"    "$OBSIDIAN_DIR/$DATE_TAG Sentiment + Technicals.md"
+cp "$MARKET_ANALYSE/reports/bridge_latest.md"    "$OBSIDIAN_DIR/$DATE_TAG Daily Report.md"
 
 echo "===== Done — $(date) ====="
