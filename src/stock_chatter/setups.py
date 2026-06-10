@@ -323,13 +323,30 @@ def _label_setup(summary: dict, price: dict) -> tuple[str, str]:
     has_negative = summary["exit_count"] > 0 or summary["short_count"] > 0
     p1 = _to_float(price.get("prior_ret_1d"))
     p5 = _to_float(price.get("prior_ret_5d"))
+    p20 = _to_float(price.get("prior_ret_20d"))
+    rel_volume = _to_float(price.get("relative_volume"))
     distance_high = _to_float(price.get("distance_from_20d_high"))
     price_available = price.get("price_data_available") == "true"
     near_high = distance_high is not None and distance_high >= -0.03
 
-    if has_negative and summary["entry_count"] == 0:
+    # A name in a strong 20-day uptrend near its highs is a leader pulling back,
+    # not a name to avoid — bearish chatter / a 5-day dip on it is usually noise.
+    # (Backtest: avoid_wait winners had +35% r20 / −6% from high vs losers +8% / −11%.)
+    strong_uptrend = (
+        price_available and p20 is not None and p20 >= 0.15
+        and distance_high is not None and distance_high >= -0.08
+    )
+    # fresh_watch only pays off when there's accumulation behind it — quiet names
+    # (rel_volume < 1.2, flat) were the duds. Require volume/price confirmation.
+    confirmed = (
+        not price_available
+        or (rel_volume is not None and rel_volume >= 1.2)
+        or (p1 is not None and p1 > 0.0)
+    )
+
+    if has_negative and summary["entry_count"] == 0 and not strong_uptrend:
         return "avoid_wait", "negative or exit-heavy account chatter"
-    if price_available and p5 is not None and p5 < -0.08:
+    if price_available and p5 is not None and p5 < -0.08 and not strong_uptrend:
         return "avoid_wait", "weak recent price action"
     if source_score <= 0.5 and distinct_accounts <= 1 and (not has_catalyst or avg_hype >= 0.5):
         return "noise", "low-quality or single-source social chatter"
@@ -339,12 +356,14 @@ def _label_setup(summary: dict, price: dict) -> tuple[str, str]:
         return "extended", "near recent highs after a meaningful move"
     if price_available and p1 is not None and p1 > 0.03 and source_score >= 1.0 and has_catalyst:
         return "momentum_confirmed", "price action confirms quality chatter"
-    if source_score >= 1.0 and has_catalyst and (not price_available or ((p5 or 0.0) < 0.08 and not near_high)):
-        return "fresh_watch", "quality chatter with catalyst before an extended move"
+    if source_score >= 1.0 and has_catalyst and confirmed and (not price_available or ((p5 or 0.0) < 0.08 and not near_high)):
+        return "fresh_watch", "quality chatter + volume/price confirmation before the move"
     if distinct_accounts >= 2 and source_score >= 1.25 and (not price_available or (p5 is None or 0.0 <= p5 <= 0.15)):
         return "building", "multiple quality accounts are converging"
-    if has_negative:
+    if has_negative and not strong_uptrend:
         return "avoid_wait", "mixed chatter includes exits or shorts"
+    if strong_uptrend:
+        return "extended", "strong uptrend near highs; bearish chatter overridden by trend"
     return "noise", "not enough quality, catalyst, or price confirmation"
 
 
