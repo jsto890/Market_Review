@@ -54,6 +54,11 @@ echo "----- Copying reports to Obsidian -----"
 DATE_TAG="$(date +%Y-%m-%d)"
 cp "$MARKET_ANALYSE/reports/bridge_latest.md" "$OBSIDIAN_DIR/$DATE_TAG Daily Report.md"
 
+echo "----- Ingesting bridge CSVs into dashboard DB -----"
+mkdir -p "$MARKET_ANALYSE/logs"
+(cd "$MARKET_ANALYSE/dashboard" && /opt/homebrew/bin/npm run ingest) \
+  >> "$MARKET_ANALYSE/logs/ingest.log" 2>&1 || echo "ingest failed"
+
 if [ "$(date +%d)" = "01" ]; then
   echo "----- Monthly label-efficacy backtest -----"
   cd "$MARKET_ANALYSE"
