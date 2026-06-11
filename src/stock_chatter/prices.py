@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from .io_utils import write_csv_dicts
-from .tickers import yfinance_symbol
+from .tickers import is_plausible_ticker, yfinance_symbol
 
 
 PRICE_FIELDS = ["ticker", "date", "open", "high", "low", "close", "volume"]
@@ -12,7 +12,11 @@ UNSUPPORTED_TICKER_FIELDS = ["ticker", "provider_symbol", "reason"]
 
 
 def tickers_from_signals(signals: list[dict]) -> list[str]:
-    return sorted({row["ticker"].upper() for row in signals if row.get("ticker")})
+    return sorted({
+        row["ticker"].upper()
+        for row in signals
+        if row.get("ticker") and is_plausible_ticker(row["ticker"])
+    })
 
 
 def fetch_yfinance_prices(

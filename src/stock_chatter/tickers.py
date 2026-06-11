@@ -1,5 +1,19 @@
 from __future__ import annotations
 
+import re
+
+_PLAUSIBLE_RE = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
+
+
+def is_plausible_ticker(ticker: str) -> bool:
+    """Return True for tickers that could be a real US equity/ETF symbol.
+
+    Rejects garbage strings from X posts (e.g. AMDDDDDDDD, MUUUUUUUUUUU)
+    before they hit yfinance and trigger multi-hour curl timeouts.
+    """
+    return bool(_PLAUSIBLE_RE.match(normalize_ticker(ticker)))
+
+
 CRYPTO_TICKERS = {
     "BTC", "ETH", "DOGE", "SOL", "XRP", "ADA", "AVAX", "MATIC", "DOT", "LINK",
     "LTC", "BCH", "ATOM", "NEAR", "APT", "ARB", "OP", "ZEC", "CRO", "TON",
