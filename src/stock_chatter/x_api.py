@@ -212,6 +212,61 @@ def fetch_trending_cashtag_posts(
     return rows
 
 
+def fetch_single_cashtag_posts(
+    ticker: str,
+    *,
+    start_time: datetime,
+    end_time: datetime,
+    max_results: int = 100,
+    bearer_token: str | None = None,
+    approve_cost: bool = False,
+) -> list[dict]:
+    """Search $TICKER on the full public timeline (not limited to followed accounts)."""
+    symbol = ticker.upper().removeprefix("$")
+    query = f"${symbol} -is:retweet lang:en"
+    if not approve_cost:
+        raise XCostApprovalRequired(
+            f"X API estimate: endpoint={RECENT_SEARCH_URL}, query_count=1, max_requests=1. "
+            "On-demand cashtag search. Review current X pricing before approving."
+        )
+
+    token = bearer_token or os.environ.get("X_BEARER_TOKEN")
+    if not token:
+        raise RuntimeError("X_BEARER_TOKEN is missing")
+
+    params: dict[str, str] = {
+        "query": query,
+        "start_time": iso_utc(start_time),
+        "end_time": iso_utc(end_time),
+        "max_results": str(min(max_results, 100)),
+        "tweet.fields": "author_id,created_at,entities,public_metrics",
+        "expansions": "author_id",
+        "user.fields": "username,name",
+    }
+    payload = _get_json(RECENT_SEARCH_URL, params, token)
+    users = {
+        user.get("id"): user
+        for user in payload.get("includes", {}).get("users", [])
+    }
+    rows: list[dict] = []
+    for tweet in payload.get("data", []):
+        user = users.get(tweet.get("author_id"), {})
+        username = user.get("username", "")
+        tweet_id = tweet["id"]
+        rows.append({
+            "id": tweet_id,
+            "account": f"@{username}" if username else "",
+            "name": user.get("name", ""),
+            "created_at": tweet.get("created_at", ""),
+            "text": tweet.get("text", ""),
+            "entities": tweet.get("entities", {}),
+            "url": f"https://x.com/{username}/status/{tweet_id}" if username else "",
+            "public_metrics": tweet.get("public_metrics", {}),
+            "query": query,
+        })
+    return rows
+
+
 def _get_json(url: str, params: dict[str, str], bearer_token: str) -> dict:
     request = Request(
         f"{url}?{urlencode(params)}",

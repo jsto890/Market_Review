@@ -6,83 +6,51 @@ Searches $TICKER from the full public timeline (not just monitored accounts),
 flags which posters are in the following list, and prints a ranked summary.
 
 Usage:
-    python ticker_search.py SMR [--since-hours 48] [--max-results 100]
+    python scripts/ticker_search.py SMR [--since-hours 48] [--max-results 100]
 """
 from __future__ import annotations
 
 import argparse
-import json
-import os
 import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError
 
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
 from stock_chatter.accounts import ACCOUNTS, account_for_handle
+from stock_chatter.x_api import fetch_single_cashtag_posts
 
 TIER_ORDER = {"core_alpha": 0, "swing_watchlist": 1, "long_term_research": 2, "sentiment_noise": 3}
 FOLLOWING = {a.handle.lower(): a for a in ACCOUNTS}
-RECENT_SEARCH_URL = "https://api.x.com/2/tweets/search/recent"
-
-
-def _bearer() -> str:
-    token = os.environ.get("X_BEARER_TOKEN", "")
-    if not token:
-        sys.exit("X_BEARER_TOKEN not set — run: source ~/.zprofile")
-    return token
-
-
-def _get_json(url: str, params: dict) -> dict:
-    req = Request(
-        f"{url}?{urlencode(params)}",
-        headers={"Authorization": f"Bearer {_bearer()}", "User-Agent": "stock-chatter/0.1"},
-    )
-    try:
-        with urlopen(req, timeout=30) as r:
-            return json.loads(r.read().decode())
-    except HTTPError as e:
-        body = e.read().decode(errors="replace")[:400]
-        sys.exit(f"X API error {e.code}: {body}")
 
 
 def search_ticker(ticker: str, since_hours: int, max_results: int) -> list[dict]:
     end = datetime.now(timezone.utc) - timedelta(seconds=15)
     start = end - timedelta(hours=since_hours)
-
-    def iso(dt: datetime) -> str:
-        return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-    query = f"${ticker.upper()} -is:retweet lang:en"
-    params = {
-        "query": query,
-        "start_time": iso(start),
-        "end_time": iso(end),
-        "max_results": str(min(max_results, 100)),
-        "tweet.fields": "author_id,created_at,entities,public_metrics",
-        "expansions": "author_id",
-        "user.fields": "username,name",
-    }
-    payload = _get_json(RECENT_SEARCH_URL, params)
-    users = {u["id"]: u for u in payload.get("includes", {}).get("users", [])}
+    raw = fetch_single_cashtag_posts(
+        ticker,
+        start_time=start,
+        end_time=end,
+        max_results=max_results,
+        approve_cost=True,
+    )
     posts = []
-    for t in payload.get("data", []):
-        user = users.get(t.get("author_id"), {})
-        handle = f"@{user.get('username', '?')}"
-        account = FOLLOWING.get(handle.lower())
+    for row in raw:
+        handle = row.get("account", "")
+        account = FOLLOWING.get(handle.lower()) or account_for_handle(handle)
+        metrics = row.get("public_metrics", {})
         posts.append({
-            "id": t["id"],
+            "id": row["id"],
             "handle": handle,
-            "name": user.get("name", ""),
-            "created_at": t.get("created_at", ""),
-            "text": t.get("text", ""),
-            "likes": t.get("public_metrics", {}).get("like_count", 0),
-            "retweets": t.get("public_metrics", {}).get("retweet_count", 0),
-            "impressions": t.get("public_metrics", {}).get("impression_count", 0),
-            "url": f"https://x.com/{user.get('username','')}/status/{t['id']}",
-            "in_following": account is not None,
+            "name": row.get("name", ""),
+            "created_at": row.get("created_at", ""),
+            "text": row.get("text", ""),
+            "likes": metrics.get("like_count", 0),
+            "retweets": metrics.get("retweet_count", 0),
+            "impressions": metrics.get("impression_count", 0),
+            "url": row.get("url", ""),
+            "in_following": account is not None and handle.lower() in FOLLOWING,
             "tier": account.tier if account else "public",
             "weight": account.score_weight if account else 0.0,
             "purpose": account.purpose if account else "",
@@ -123,7 +91,6 @@ def print_report(ticker: str, posts: list[dict], since_hours: int) -> None:
     print(f"  Unique accounts: {top_accounts}  |  Avg likes: {avg_likes:.1f}  |  "
           f"Following coverage: {len(following_posts)}/{len(posts)} posts\n")
 
-    # ── Following list posts first, grouped by tier ──────────────────────────
     if following_posts:
         print(f"  ── FROM YOUR FOLLOWING LIST ({len(following_posts)} posts) ──────────────────────")
         by_tier: dict[str, list[dict]] = {}
@@ -139,7 +106,6 @@ def print_report(ticker: str, posts: list[dict], since_hours: int) -> None:
                     print(f"    {line}")
                 print(f"  {p['url']}")
 
-    # ── Top public posts by likes ─────────────────────────────────────────────
     top_public = public_posts[:10]
     if top_public:
         print(f"\n  ── TOP PUBLIC POSTS (by likes, top {len(top_public)}) ─────────────────────")

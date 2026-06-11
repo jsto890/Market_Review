@@ -19,7 +19,19 @@ in this repository (raw data is gitignored). The monitored-account list in
 `src/stock_chatter/accounts.py` uses anonymised placeholder handles for
 privacy; real account identities are not published.
 
-It supports:
+## How ticker discovery works
+
+Sentiment is **not** limited to the curated follow list. Three ingestion paths feed one pool:
+
+| Path | What it does | CLI / entry point |
+|------|----------------|-------------------|
+| **Curated accounts** | Recent Search filtered to followed handles; trust tiers weight who said what | `fetch-x` → `extract-signals` |
+| **Broad cashtag + phrase search** | Full public timeline scan (`stock`, `breakout`, `small cap`, `earnings`, … + `has:cashtags`); candidates bucketed into emerging small/mid-caps and running large-caps | `run_daily.sh` (calls `fetch_trending_cashtag_posts` + `discovery.select_candidates`) |
+| **On-demand cashtag search** | `$TICKER` on the full timeline; flags which posters are in the curated list | `scripts/ticker_search.py SMR` |
+
+All paths extract cashtags, tag catalysts from context phrases, classify setup labels, and write `reports/ticker_setups.csv`. The daily pipeline merges broad-discovery names into the Argus bridge via `--extra-tickers`.
+
+It also supports:
 
 - monitored X account tiers;
 - explicit X API cost gating;
@@ -28,6 +40,22 @@ It supports:
 - forward-return account trust files;
 - unsupported ticker reporting;
 - one-page memo and dashboard generation.
+
+## Repository layout
+
+```
+Market_Review/
+├── src/stock_chatter/     # package (cli, x_api, discovery, setups, …)
+├── scripts/               # ops + ad-hoc utilities
+│   ├── run_daily.sh       # full daily pipeline (+ Argus bridge)
+│   ├── refresh_bridge.sh  # post-close price refresh + bridge
+│   ├── ticker_search.py   # on-demand $TICKER X search
+│   └── following_summary.py
+├── run_daily.sh           # launchd entrypoint → scripts/run_daily.sh
+├── data/                  # gitignored — raw posts, prices, signals
+├── reports/               # gitignored — setups, watchlist, memo
+└── logs/                  # gitignored — daily run logs
+```
 
 ## Cost Rule
 
@@ -131,6 +159,26 @@ Run the local daily pipeline without calling X:
 ```zsh
 PYTHONPATH=src python -m stock_chatter.cli daily-pipeline --x-skipped
 ```
+
+On-demand cashtag search for a single ticker (full timeline, not just followed accounts):
+
+```zsh
+python scripts/ticker_search.py SMR --since-hours 48
+```
+
+Summarise recent posts from your following list (reads local cache, no API call):
+
+```zsh
+python scripts/following_summary.py --since-hours 72
+```
+
+Run the full daily driver (curated fetch + broad discovery + Argus bridge) — requires `X_BEARER_TOKEN` and `--approve-x-cost` on the X steps inside `scripts/run_daily.sh`:
+
+```zsh
+./run_daily.sh    # thin wrapper → scripts/run_daily.sh
+```
+
+Override paths via env vars: `MARKET_REVIEW`, `MARKET_ANALYSE`, `ARGUS_PYTHON`, `OBSIDIAN_DIR` (see `scripts/_paths.sh`).
 
 Run tests:
 

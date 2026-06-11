@@ -1,12 +1,41 @@
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
-.pytest_cache/
 .venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS / editor / tooling
+.DS_Store
+Thumbs.db
+.claude/
+.cursor/
+*.swp
+*.swo
+
+# Local account config (real X handles — never commit)
+src/stock_chatter/accounts_local.py
+
+# Data / artifacts / outputs
+*.db
+*.sqlite
+*.sqlite3
+*.parquet
+*.pkl
+*.pickle
+.cache/
+logs/
+*.log
 data/
 reports/
-logs/
-.DS_Store
-.claude/
+
+# Audit artifact (do not publish)
 GITHUB_READINESS.md
-src/stock_chatter/accounts_local.py

@@ -6,7 +6,7 @@ Reads from the locally cached x_posts.jsonl — no API call needed.
 Groups by account tier and shows each account's recent tickers + excerpts.
 
 Usage:
-    python following_summary.py [--since-hours 72] [--tier core_alpha]
+    python scripts/following_summary.py [--since-hours 72] [--tier core_alpha]
 """
 from __future__ import annotations
 
@@ -17,11 +17,13 @@ from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-from stock_chatter.accounts import ACCOUNTS, account_for_handle
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from stock_chatter.accounts import ACCOUNTS
 from stock_chatter.signals import extract_tickers_from_post
 
-POSTS_FILE = Path(__file__).parent / "data/raw/x_posts.jsonl"
+POSTS_FILE = ROOT / "data/raw/x_posts.jsonl"
 TIER_ORDER = ["core_alpha", "swing_watchlist", "long_term_research", "sentiment_noise"]
 TIER_LABEL = {
     "core_alpha":       "CORE ALPHA",
@@ -75,7 +77,6 @@ def main() -> None:
         print(f"No posts found in the last {args.since_hours}h. Run fetch-x to update.")
         return
 
-    # Group by account
     by_account: dict[str, list[dict]] = defaultdict(list)
     for p in posts:
         handle = p.get("account", "").lower()
@@ -101,7 +102,6 @@ def main() -> None:
             acct_posts = sorted(by_account[acct.handle.lower()],
                                 key=lambda p: p.get("created_at", ""), reverse=True)
 
-            # Aggregate tickers mentioned
             ticker_counts: dict[str, int] = defaultdict(int)
             for p in acct_posts:
                 for t in extract_tickers_from_post(p):
@@ -111,7 +111,6 @@ def main() -> None:
             print(f"\n  {acct.handle}  (weight={acct.score_weight}  |  {acct.purpose})")
             print(f"  {len(acct_posts)} posts  |  tickers: {' '.join('$'+t for t in top_tickers) or 'none'}")
 
-            # Show up to 4 most recent posts
             for p in acct_posts[:4]:
                 metrics = p.get("public_metrics", {})
                 likes = metrics.get("like_count", 0)
