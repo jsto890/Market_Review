@@ -7,7 +7,8 @@ from pathlib import Path
 from .accounts import usernames
 from .backtest import BACKTEST_FIELDS, backtest_accounts
 from .dashboard import write_dashboard
-from .io_utils import append_new_jsonl, read_csv_dicts, read_jsonl, write_csv_dicts, write_text
+from .fallback_sources import DEFAULT_SUBREDDITS, FallbackSourceError, fetch_fallback_posts
+from .io_utils import append_new_jsonl, read_csv_dicts, read_jsonl, write_csv_dicts, write_json, write_text
 from .memo import render_memo
 from .prices import fetch_yfinance_prices, tickers_from_signals
 from .run_log import log_run, new_run_id
@@ -36,6 +37,7 @@ LEADERBOARD_PATH = Path("reports/account_leaderboard.csv")
 BACKTEST_PATH = Path("reports/account_backtest.csv")
 UNSUPPORTED_TICKERS_PATH = Path("reports/unsupported_tickers.csv")
 MEMO_PATH = Path("reports/latest_memo.md")
+SENTIMENT_META_PATH = Path("data/state/sentiment_meta.json")
 DASHBOARD_PATH = Path("reports/dashboard.html")
 
 SIGNAL_FIELDS = [
@@ -87,6 +89,13 @@ def main(argv: list[str] | None = None) -> int:
     fetch.add_argument("--daily-budget-usd", type=float, default=1.0)
     fetch.add_argument("--assumed-post-read-cost-usd", type=float, default=0.005)
     fetch.add_argument("--out", default=str(POSTS_PATH))
+
+    fallback = subparsers.add_parser("fetch-fallback", help="Fetch chatter from free fallback sources (Stocktwits, Reddit) when X is unavailable.")
+    fallback.add_argument("--tickers", default="", help="Comma-separated tickers for Stocktwits symbol streams.")
+    fallback.add_argument("--subreddits", default=DEFAULT_SUBREDDITS)
+    fallback.add_argument("--max-symbols", type=int, default=40)
+    fallback.add_argument("--watchlist", default=str(WATCHLIST_PATH))
+    fallback.add_argument("--out", default=str(POSTS_PATH))
 
     extract = subparsers.add_parser("extract-signals", help="Extract ticker signals from saved X posts.")
     extract.add_argument("--posts", default=str(POSTS_PATH))
@@ -238,6 +247,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             set_max_timestamp(state, "last_x_fetch_at", max_row_timestamp or end_time)
         save_state(state)
+        _write_sentiment_meta("x")
         log_run(
             "x_fetch_success",
             run_id=run_id,
@@ -248,6 +258,33 @@ def main(argv: list[str] | None = None) -> int:
             end_time=end_time.isoformat(),
         )
         print(f"Fetched and appended {count} X post row(s) to {args.out}.")
+        return 0
+
+    if args.command == "fetch-fallback":
+        run_id = new_run_id()
+        tickers = [t.strip() for t in args.tickers.split(",") if t.strip()]
+        tickers += [row.get("ticker", "") for row in read_csv_dicts(args.watchlist)[:60] if row.get("ticker")]
+        try:
+            rows, sources = fetch_fallback_posts(tickers, subreddits=args.subreddits, max_symbols=args.max_symbols)
+        except FallbackSourceError as exc:
+            log_run("fallback_fetch_error", run_id=run_id, error=str(exc))
+            print(str(exc))
+            print("No fallback post rows were saved.")
+            return 1
+        if not rows:
+            log_run("fallback_fetch_empty", run_id=run_id)
+            print("Fallback sources returned no rows.")
+            return 1
+        count = append_new_jsonl(args.out, _dedupe_rows(rows))
+        _write_sentiment_meta("+".join(sources))
+        log_run(
+            "fallback_fetch_success",
+            run_id=run_id,
+            sources=",".join(sources),
+            row_count=str(len(rows)),
+            appended_count=str(count),
+        )
+        print(f"Fetched and appended {count} fallback post row(s) from {'+'.join(sources)} to {args.out}.")
         return 0
 
     if args.command == "extract-signals":
@@ -415,6 +452,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     raise AssertionError(f"Unhandled command {args.command}")
+
+
+def _write_sentiment_meta(source: str) -> None:
+    write_json(
+        SENTIMENT_META_PATH,
+        {
+            "last_success_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "source": source,
+        },
+    )
 
 
 def _dedupe_rows(rows: list[dict]) -> list[dict]:
