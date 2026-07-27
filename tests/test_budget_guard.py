@@ -14,7 +14,9 @@ def test_fetch_x_daily_budget_guard_stops_before_network(tmp_path, monkeypatch, 
     assert not Path("data/raw/x_posts.jsonl").exists()
 
 
-def test_fetch_x_reserves_budget_before_network(tmp_path, monkeypatch):
+def test_fetch_x_does_not_charge_budget_on_failed_fetch(tmp_path, monkeypatch):
+    # A failed fetch must not leave a phantom charge that blocks later runs;
+    # the daily budget is debited only after a successful call.
     monkeypatch.chdir(tmp_path)
 
     def fail_network(**kwargs):
@@ -26,8 +28,8 @@ def test_fetch_x_reserves_budget_before_network(tmp_path, monkeypatch):
     except RuntimeError:
         pass
     state_files = list(Path("data/state").glob("monitor_state.json"))
-    assert state_files
-    assert "x_estimated_spend_usd_" in state_files[0].read_text()
+    if state_files:
+        assert "x_estimated_spend_usd_" not in state_files[0].read_text()
 
 
 def test_fetch_x_stops_when_budget_already_used(tmp_path, monkeypatch, capsys):
@@ -58,6 +60,24 @@ def test_fetch_x_window_counts_against_current_run_day(tmp_path, monkeypatch):
     state = Path("data/state/monitor_state.json").read_text()
     assert "x_estimated_spend_usd_2026-05-07" in state
     assert "x_estimated_spend_usd_2026-05-02" not in state
+
+
+def test_fetch_x_clamps_stale_since_last_cursor_to_7_day_floor(tmp_path, monkeypatch):
+    # A --since-last cursor older than X's 7-day recent-search window must be
+    # clamped forward so the request isn't rejected with HTTP 400.
+    monkeypatch.chdir(tmp_path)
+    write_json("data/state/monitor_state.json", {"last_x_fetch_at": "2026-01-01T00:00:00Z"})
+    monkeypatch.setattr(cli, "datetime", _FrozenDatetime)
+    captured = {}
+    monkeypatch.setattr(
+        cli,
+        "fetch_recent_cashtag_posts",
+        lambda **kwargs: captured.update(kwargs) or [],
+    )
+    result = cli.main(["fetch-x", "--since-last", "--approve-x-cost"])
+    assert result == 0
+    floor = _dt.datetime(2026, 4, 30, 12, 15, tzinfo=_dt.timezone.utc)
+    assert captured["start_time"] == floor
 
 
 def test_repair_state_sets_watermark_to_max_saved_post(tmp_path, monkeypatch):

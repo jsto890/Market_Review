@@ -197,6 +197,11 @@ def main(argv: list[str] | None = None) -> int:
             start_time = start_time or end_time - timedelta(hours=args.since_hours)
             if not args.since_last and args.since_hours >= 168:
                 start_time += timedelta(minutes=5)
+            # X recent-search only serves the last 7 days; clamp a stale
+            # --since-last cursor forward so the request isn't rejected (HTTP 400).
+            recent_floor = datetime.now(timezone.utc) - timedelta(days=7) + timedelta(minutes=15)
+            if start_time < recent_floor:
+                start_time = recent_floor
         estimate = estimate_recent_search(usernames(), max_pages=args.max_pages)
         estimated_cost = estimate.max_requests * 100 * args.assumed_post_read_cost_usd
         budget_key = f"x_estimated_spend_usd_{datetime.now(timezone.utc).date().isoformat()}"
@@ -215,9 +220,6 @@ def main(argv: list[str] | None = None) -> int:
             )
             print("No X API call was made.")
             return 2
-        if args.approve_x_cost:
-            state[budget_key] = f"{used_today + estimated_cost:.2f}"
-            save_state(state)
         try:
             rows = fetch_recent_cashtag_posts(
                 start_time=start_time,
@@ -232,13 +234,15 @@ def main(argv: list[str] | None = None) -> int:
             print("No X API call was made. Re-run with --approve-x-cost only after approving this cost risk.")
             return 2
         except XApiError as exc:
-            if args.approve_x_cost:
-                state[budget_key] = f"{used_today:.2f}"
-                save_state(state)
             log_run("x_fetch_error", run_id=run_id, error=str(exc), estimated_cost_usd=f"{estimated_cost:.2f}")
             print(str(exc))
             print("No X post rows were saved.")
             return 1
+        # Debit the daily budget only after a successful call, so a failed
+        # fetch (bad window, exhausted credits, network) never leaves a
+        # phantom charge that blocks later runs. Persisted by save_state below.
+        if args.approve_x_cost:
+            state[budget_key] = f"{used_today + estimated_cost:.2f}"
         count = append_new_jsonl(args.out, _dedupe_rows(rows))
         max_row_timestamp = _max_post_timestamp(rows)
         if explicit_window:
